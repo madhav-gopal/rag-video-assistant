@@ -1,13 +1,15 @@
 import streamlit as st
 import time
+import traceback
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from utils.audio_processor import process_input
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_action_items, extract_key_decisions, extract_questions
 from core.rag_engine import build_rag_chain, ask_question
-
-load_dotenv()
 
 # ─── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -380,28 +382,34 @@ if run_btn:
                 st.info("⚙️ Pipeline running — see sidebar for live status…")
 
             update_step("audio", "active")
+            progress_placeholder.info("🔊 Processing audio…")
             chunks = process_input(source)
             update_step("audio", "done")
 
             update_step("transcript", "active")
+            progress_placeholder.info("📝 Transcribing audio with Whisper… The first run may download the model.")
             transcript = transcribe_all(chunks, language)
             update_step("transcript", "done")
 
             update_step("title", "active")
+            progress_placeholder.info("🏷️ Generating the meeting title…")
             title = generate_title(transcript)
             update_step("title", "done")
 
             update_step("summary", "active")
+            progress_placeholder.info("📋 Generating the summary…")
             summary = summarize(transcript)
             update_step("summary", "done")
 
             update_step("extract", "active")
+            progress_placeholder.info("🔍 Extracting action items, decisions, and questions…")
             action_items  = extract_action_items(transcript)
             decisions     = extract_key_decisions(transcript)
             questions     = extract_questions(transcript)
             update_step("extract", "done")
 
             update_step("rag", "active")
+            progress_placeholder.info("🧠 Preparing transcript search…")
             rag_chain = build_rag_chain(transcript)
             update_step("rag", "done")
 
@@ -425,6 +433,8 @@ if run_btn:
                 if st.session_state.pipeline_steps.get(k) == "active":
                     st.session_state.pipeline_steps[k] = "pending"
             progress_placeholder.error(f"❌ Error: {e}")
+            tb = traceback.format_exc()
+            progress_placeholder.error(f"❌ Error: {e}\n\n```\n{tb}\n```")
 
 # ── Results ──────────────────────────────────────────────────────────────────────
 if st.session_state.result:
@@ -512,7 +522,7 @@ if st.session_state.result:
     with chat_col1:
         user_input = st.text_input("Your question", placeholder="What were the main decisions made?", label_visibility="collapsed")
     with chat_col2:
-        send_btn = st.button("Send →", use_container_width=True)
+        send_btn = st.button("Send ->", use_container_width=True)
 
     if send_btn and user_input.strip():
         with st.spinner("Thinking…"):

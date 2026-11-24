@@ -1,15 +1,27 @@
 import yt_dlp
 from pydub import AudioSegment
 import os
+import re
 
 DOWNLOAD_DIR = 'downloades'
-os.makedirs(DOWNLOAD_DIR,exist_ok = True)
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-def download_youtube_audio(url :str) ->str:
+# Windows disallows these characters in file names
+_ILLEGAL_WIN_CHARS = re.compile(r'[\\/*?:"<>|]')
+
+def _sanitize_filename(name: str) -> str:
+    """Replace Windows-illegal characters with underscores."""
+    return _ILLEGAL_WIN_CHARS.sub('_', name)
+
+
+def download_youtube_audio(url: str) -> str:
     output_path = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
+
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": output_path,
+        # Replaces Windows-illegal characters (|, ?, :, etc.) in the title
+        "restrictfilenames": True,
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -18,50 +30,77 @@ def download_youtube_audio(url :str) ->str:
             }
         ],
         "quiet": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb", "web"]
+            }
+        },
     }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info).replace(".webm", ".wav").replace(".m4a", ".wav")
+        # prepare_filename reflects the restrictfilenames-sanitised name
+        raw = ydl.prepare_filename(info)
+        filename = _sanitize_filename(os.path.splitext(raw)[0]) + ".wav"
+        # Only sanitize the filename part, NOT the directory separator
+        directory = os.path.dirname(raw)
+        basename = _sanitize_filename(os.path.splitext(os.path.basename(raw))[0])
+        filename = os.path.join(directory, basename) + ".wav"
     return filename
-
 
 
 def convert_to_wav(input_path: str) -> str:
     """Convert any audio/video file to WAV format using pydub."""
     output_path = os.path.splitext(input_path)[0] + "_converted.wav"
     audio = AudioSegment.from_file(input_path)
-    audio = audio.set_channels(1).set_frame_rate(16000) #16khz
+    audio = audio.set_channels(1).set_frame_rate(16000)  # 16khz
     audio.export(output_path, format="wav")
     return output_path
 
 
-
-def chunk_audio(wav_path : str , chunk_minutes : int = 10) -> list:
+def chunk_audio(wav_path: str, chunk_minutes: int = 10) -> list:
     audio = AudioSegment.from_wav(wav_path)
-    chunk_ms = chunk_minutes * 60 * 1000 
+
+    # Normalise to 16 kHz mono — Whisper requires this
+    audio = audio.set_channels(1).set_frame_rate(16000)
+
+    chunk_ms = chunk_minutes * 60 * 1000
+    MIN_CHUNK_MS = 1000  # skip chunks shorter than 1 second — Whisper crashes on empty audio
 
     chunks = []
 
-    for i, start in enumerate(range(0,len(audio),chunk_ms)):
-        chunk = audio[start : start + chunk_ms]
-        chunk_path = f"{wav_path}_chunk_{i}.wav"
-        chunk.export(chunk_path , format = "wav")
+    for i, start in enumerate(range(0, len(audio), chunk_ms)):
+        chunk = audio[start: start + chunk_ms]
 
+        # Skip empty / near-silent chunks that would cause Whisper tensor errors
+        if len(chunk) < MIN_CHUNK_MS:
+            print(f"Skipping chunk {i} (too short: {len(chunk)}ms)")
+            continue
+
+        chunk_path = f"{wav_path}_chunk_{i}.wav"
+        chunk.export(chunk_path, format="wav")
         chunks.append(chunk_path)
-    
+
     return chunks
 
 def process_input(source: str) -> list:
-    if source.startswith("http://") or source.startswith("https://"):
+    source_str = source.strip()
+    if (source_str.startswith("http://") or source_str.startswith("https://")
+            or "youtube.com" in source_str or "youtu.be" in source_str):
         print("Detected YouTube URL. Downloading audio...")
-        wav_path = download_youtube_audio(source)
+        wav_path = download_youtube_audio(source_str)
     else:
         print("Detected local file. Converting to WAV...")
-        wav_path = convert_to_wav(source)
+        wav_path = convert_to_wav(source_str)
 
     print("Chunking audio...")
     chunks = chunk_audio(wav_path)
     print(f"Audio ready — {len(chunks)} chunk(s) created.")
     return chunks
+
+
+
+
+
 
 

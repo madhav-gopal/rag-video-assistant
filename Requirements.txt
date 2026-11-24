@@ -18,8 +18,10 @@ deep-translator>=1.11.4           # Lightweight translation wrapper (Google back
 langchain>=0.2.0
 langchain-core>=0.2.0
 langchain-community>=0.2.0
-langchain-mistralai>=0.1.0        # LangChain wrapper for Mistral API
-mistralai>=0.4.0                  # Official Mistral Python client
+langchain-chroma>=0.1.0             # LangChain integration for Chroma vector store
+langchain-text-splitters>=0.2.0     # RecursiveCharacterTextSplitter package
+langchain-mistralai>=0.1.0,<1.0   # LangChain wrapper for Mistral API
+mistralai>=1.0.0,<2.0.0           # Avoid v2 long generated paths on Windows
 
 # ── RAG Pipeline ──────────────────────────────────────────────────────────────
 chromadb>=0.5.0                   # Local vector store

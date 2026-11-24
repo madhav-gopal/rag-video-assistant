@@ -8,7 +8,7 @@ from pydub import AudioSegment
 SARVAM_PIECE_SECONDS = 25
 
 
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "tiny")
 
 
 SARVAM_API_KEY = os.getenv("SARVAM_API_KEY")
@@ -30,11 +30,24 @@ def load_model():
 
 
 def transcribe_chunk_whisper(chunk_path: str) -> str:
+    # Guard: skip empty or missing audio files — Whisper crashes with "reshape tensor of 0 elements"
+    if not os.path.exists(chunk_path) or os.path.getsize(chunk_path) < 1000:
+        print(f"Skipping empty/missing chunk: {chunk_path}")
+        return ""
 
-    model = load_model()  
+    try:
+        audio = AudioSegment.from_wav(chunk_path)
+        if len(audio) < 500:  # less than 0.5 seconds
+            print(f"Skipping chunk with insufficient audio ({len(audio)}ms): {chunk_path}")
+            return ""
+    except Exception as e:
+        print(f"Could not read chunk {chunk_path}: {e}")
+        return ""
 
-    result = model.transcribe(chunk_path, task="transcribe")  
-    return result["text"]  
+    model = load_model()
+    result = model.transcribe(chunk_path, task="transcribe", fp16=False)
+    return result["text"]
+
 
 
 def _send_to_sarvam(piece_path: str) -> str:
@@ -80,7 +93,7 @@ def transcribe_chunk_sarvam(chunk_path: str) -> str:
         piece.export(piece_path, format="wav")
 
         try:
-            print(f"  → Sarvam piece {i + 1}/{total_pieces} ...")
+            print(f"  -> Sarvam piece {i + 1}/{total_pieces} ...")
             full_text += _send_to_sarvam(piece_path) + " "
         finally:
             if os.path.exists(piece_path):
