@@ -1,5 +1,9 @@
 .env
+.env.*
+!.env.example
 __pycache__/
 *.py[cod]
 *.log
 vector_db/
+downloades/
+downloads/
