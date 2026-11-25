@@ -1,7 +1,10 @@
+import os
+import shutil
 import streamlit as st
 import time
 import traceback
 from dotenv import load_dotenv
+from utils.pdf_exporter import generate_pdf
 
 load_dotenv()
 
@@ -344,6 +347,16 @@ with st.sidebar:
 
     run_btn = st.button("⚡  Analyse", use_container_width=True)
 
+    # ── Feature 2: Clear / New Session ───────────────────────────────────────
+    if st.session_state.get("pipeline_done") or st.session_state.get("result"):
+        st.markdown("---")
+        if st.button("🗑️  New Session", use_container_width=True, type="secondary"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            if os.path.exists("vector_db"):
+                shutil.rmtree("vector_db")
+            st.rerun()
+
     if st.session_state.pipeline_done:
         st.markdown("---")
         st.markdown('<span class="badge badge-green">Pipeline Status</span>', unsafe_allow_html=True)
@@ -391,6 +404,16 @@ if run_btn:
             transcript = transcribe_all(chunks, language)
             update_step("transcript", "done")
 
+            # ── Feature 3: Compute stats ──────────────────────────────────
+            words       = transcript.split()
+            word_count  = len(words)
+            est_minutes = max(1, round(word_count / 130))   # ~130 wpm avg speaking rate
+            stats = {
+                "word_count":  word_count,
+                "est_minutes": est_minutes,
+                "chunk_count": len(chunks),
+            }
+
             update_step("title", "active")
             progress_placeholder.info("🏷️ Generating the meeting title…")
             title = generate_title(transcript)
@@ -421,6 +444,7 @@ if run_btn:
                 "key_decisions": decisions,
                 "open_questions": questions,
                 "rag_chain": rag_chain,
+                "stats": stats,
             }
             st.session_state.pipeline_done = True
             progress_placeholder.success("✅ Analysis complete!")
@@ -439,6 +463,16 @@ if run_btn:
 # ── Results ──────────────────────────────────────────────────────────────────────
 if st.session_state.result:
     r = st.session_state.result
+
+    # ── Feature 3: Stats bar ──────────────────────────────────────────────────
+    s = r.get("stats", {})
+    if s:
+        st.markdown('<div style="margin-bottom:0.5rem"></div>', unsafe_allow_html=True)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("📝 Total Words",     f"{s['word_count']:,}")
+        m2.metric("🎙️ Est. Duration",   f"~{s['est_minutes']} min")
+        m3.metric("🔊 Audio Chunks",    s['chunk_count'])
+        st.markdown("---")
 
     # Title banner
     st.markdown(f"""
@@ -463,7 +497,48 @@ if st.session_state.result:
         with st.expander("📝 Full Transcript", expanded=False):
             st.markdown(f'<div class="transcript-box">{r["transcript"]}</div>', unsafe_allow_html=True)
 
-    # Second row: action items | decisions | questions
+    # ── Feature 1: Download / Export ─────────────────────────────────────────
+    st.markdown("---")
+    st.markdown('<div style="font-family:\'Syne\',sans-serif;font-size:1rem;font-weight:700;margin-bottom:0.75rem">📥 Export</div>', unsafe_allow_html=True)
+    dl1, dl2, dl3 = st.columns(3)
+
+    with dl1:
+        st.download_button(
+            label="📄 Transcript (.txt)",
+            data=r["transcript"],
+            file_name="transcript.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    with dl2:
+        summary_txt = (
+            f"TITLE\n{'='*50}\n{r['title']}\n\n"
+            f"SUMMARY\n{'='*50}\n{r['summary']}\n\n"
+            f"ACTION ITEMS\n{'='*50}\n{r['action_items']}\n\n"
+            f"KEY DECISIONS\n{'='*50}\n{r['key_decisions']}\n\n"
+            f"OPEN QUESTIONS\n{'='*50}\n{r['open_questions']}\n"
+        )
+        st.download_button(
+            label="📋 Summary (.txt)",
+            data=summary_txt,
+            file_name="summary.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    with dl3:
+        try:
+            pdf_bytes = generate_pdf(r)
+            st.download_button(
+                label="📑 Full Report (.pdf)",
+                data=pdf_bytes,
+                file_name="meeting_report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as pdf_err:
+            st.warning(f"PDF generation failed: {pdf_err}")
+    st.markdown("---")
+
     c1, c2, c3 = st.columns(3, gap="medium")
 
     with c1:
